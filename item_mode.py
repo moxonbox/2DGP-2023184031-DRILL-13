@@ -21,7 +21,11 @@ def update():
 
 
 def render():
-    pass
+    clear_canvas()
+    game_world.render()
+    cx, cy = get_canvas_width() / 2, get_canvas_height() / 2
+    image.draw(cx, cy)
+    update_canvas()
 
 
 def pause():
