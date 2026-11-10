@@ -13,7 +13,10 @@ def init():
 
 
 def handle_events():
-    pass
+    selections = {SDLK_0: 0, SDLK_1: 1, SDLK_2: 2}
+    for event in get_events():
+        if event.type == SDL_KEYDOWN and event.key in selections:
+            play_mode.boy.selected_ball = selections[event.key]
 
 
 def update():
