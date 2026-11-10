@@ -2,16 +2,21 @@
 
 from types import SimpleNamespace
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, call, patch
 
-from sdl2 import SDL_KEYDOWN, SDL_KEYUP, SDLK_LEFT, SDLK_RIGHT, SDLK_SPACE
+from sdl2 import (SDL_KEYDOWN, SDL_KEYUP, SDL_QUIT, SDLK_0, SDLK_1, SDLK_2,
+                  SDLK_ESCAPE, SDLK_LEFT, SDLK_RIGHT, SDLK_SPACE, SDLK_i, SDLK_p)
 
 import ball
 import boy
 import game_framework
 import game_world
 import grass
+import item_mode
+import logo_mode
+import pause_mode
 import play_mode
+import title_mode
 
 
 class ItemFlowTests(unittest.TestCase):
@@ -19,9 +24,9 @@ class ItemFlowTests(unittest.TestCase):
         self.now = 0.0
         self.images = {}
         self.load_image = Mock(side_effect=self.image_for)
-        for module in (ball, boy, grass):
+        for module in (ball, boy, grass, item_mode, title_mode, logo_mode):
             self.enterContext(patch.object(module, 'load_image', self.load_image))
-        for module in (boy, play_mode):
+        for module in (boy, play_mode, logo_mode):
             self.enterContext(patch.object(module, 'get_time', lambda: self.now))
         self.enterContext(patch.object(ball, 'get_canvas_width', return_value=800))
         self.enterContext(patch.object(boy, 'get_canvas_width', return_value=800))
@@ -55,6 +60,10 @@ class ItemFlowTests(unittest.TestCase):
     def balls(self):
         return [obj for layer in game_world.world for obj in layer
                 if isinstance(obj, ball.Ball)]
+
+    def open_items(self):
+        self.events(play_mode, self.key(SDLK_i))
+        self.assertEqual(game_framework.stack, [play_mode, item_mode])
 
     def test_new_play_has_no_ball_and_space_does_not_fire(self):
         self.assertEqual(play_mode.boy.selected_ball, 0)
@@ -101,6 +110,44 @@ class ItemFlowTests(unittest.TestCase):
         self.events(play_mode, self.key(SDLK_SPACE))
         self.assertEqual(play_mode.boy.state, 'IDLE')
         self.assertEqual(self.balls(), [])
+
+    def test_item_digits_update_the_same_character(self):
+        character = play_mode.boy
+        self.open_items()
+        for key, selection in ((SDLK_1, 1), (SDLK_2, 2), (SDLK_0, 0)):
+            with self.subTest(selection=selection):
+                self.events(item_mode, self.key(key))
+                self.assertEqual(character.selected_ball, selection)
+                self.assertIs(play_mode.boy, character)
+
+    def test_item_round_trip_preserves_selection_and_world(self):
+        character = play_mode.boy
+        character.selected_ball = 1
+        self.events(play_mode, self.key(SDLK_SPACE))
+        objects = [layer[:] for layer in game_world.world]
+        self.open_items()
+        self.events(item_mode, self.key(SDLK_2), self.key(SDLK_i))
+        self.assertEqual(game_framework.stack, [play_mode])
+        self.assertIs(play_mode.boy, character)
+        self.assertEqual(game_world.world, objects)
+        self.assertIsNone(item_mode.image)
+        self.open_items()
+        self.assertEqual(character.selected_ball, 2)
+
+    def test_return_to_title_then_new_play_resets_selection(self):
+        previous = play_mode.boy
+        previous.selected_ball = 2
+        self.open_items()
+        self.events(item_mode, self.key(SDLK_ESCAPE))
+        self.assertEqual(game_framework.stack, [title_mode])
+        self.assertIsNone(play_mode.boy)
+        self.assertIsNone(item_mode.image)
+        self.assertTrue(all(not layer for layer in game_world.world))
+        self.events(title_mode, self.key(SDLK_SPACE))
+        self.assertEqual(game_framework.stack, [play_mode])
+        self.assertIsNot(play_mode.boy, previous)
+        self.assertEqual(play_mode.boy.selected_ball, 0)
+        self.assertEqual([len(layer) for layer in game_world.world], [1, 1, 0])
 
 
 if __name__ == '__main__':
