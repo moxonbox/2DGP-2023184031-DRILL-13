@@ -6,11 +6,15 @@ BALL_IMAGES = {1: 'ball21x21.png', 2: 'ball41x41.png'}
 
 
 class Ball:
+    images = {}
+
     def __init__(self, x, y, velocity, ball_type):
         if ball_type not in BALL_IMAGES:
             raise ValueError(f'Unknown ball type: {ball_type}')
         self.ball_type = ball_type
-        self.image = load_image(BALL_IMAGES[ball_type])
+        if ball_type not in Ball.images:
+            Ball.images[ball_type] = load_image(BALL_IMAGES[ball_type])
+        self.image = Ball.images[ball_type]
         self.x, self.y = x, y
         self.velocity = velocity
 
