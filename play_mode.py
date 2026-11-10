@@ -6,7 +6,7 @@ from boy import Boy
 from grass import Grass
 
 boy = None
-pause_started_at = 0.0
+pause_started_at = None
 
 
 def release_movement_keys(events):
@@ -17,6 +17,7 @@ def release_movement_keys(events):
 
 
 def handle_events():
+    global pause_started_at
     event_list = get_events()
     for index, event in enumerate(event_list):
         if event.type == SDL_QUIT:
@@ -27,6 +28,7 @@ def handle_events():
             game_framework.change_mode(title_mode)
             return
         elif event.type == SDL_KEYDOWN and event.key == SDLK_p:
+            pause_started_at = get_time()
             game_framework.push_mode(pause_mode)
             release_movement_keys(event_list[index + 1:])
             return
@@ -41,7 +43,7 @@ def handle_events():
 
 def init():
     global boy, pause_started_at
-    pause_started_at = 0.0
+    pause_started_at = None
 
     boy = Boy()
     game_world.add_oject(boy)
@@ -55,13 +57,16 @@ def update():
 
 
 def pause():
-    global pause_started_at
-    pause_started_at = get_time()
+    pass
 
 
 def resume():
+    global pause_started_at
+    if pause_started_at is None:
+        return
     if boy.state == 'IDLE':
         boy.idle_started_at += get_time() - max(pause_started_at, boy.idle_started_at)
+    pause_started_at = None
 
 
 def render():
