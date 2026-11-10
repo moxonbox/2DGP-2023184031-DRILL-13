@@ -9,9 +9,16 @@ boy = None
 pause_started_at = 0.0
 
 
+def release_movement_keys(events):
+    # A mode switch must not discard key releases already polled this frame.
+    for event in events:
+        if event.type == SDL_KEYUP and event.key in (SDLK_LEFT, SDLK_RIGHT):
+            boy.handle_event(event)
+
+
 def handle_events():
     event_list = get_events()
-    for event in event_list:
+    for index, event in enumerate(event_list):
         if event.type == SDL_QUIT:
             game_framework.quit()
             return
@@ -21,10 +28,12 @@ def handle_events():
             return
         elif event.type == SDL_KEYDOWN and event.key == SDLK_p:
             game_framework.push_mode(pause_mode)
+            release_movement_keys(event_list[index + 1:])
             return
         elif event.type == SDL_KEYDOWN and event.key == SDLK_i:
             import item_mode
             game_framework.push_mode(item_mode)
+            release_movement_keys(event_list[index + 1:])
             return
         else:
             boy.handle_event(event)

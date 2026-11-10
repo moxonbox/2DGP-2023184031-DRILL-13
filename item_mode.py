@@ -14,12 +14,16 @@ def init():
 
 def handle_events():
     selections = {SDLK_0: 0, SDLK_1: 1, SDLK_2: 2}
-    for event in get_events():
+    event_list = get_events()
+    for index, event in enumerate(event_list):
         if event.type == SDL_KEYDOWN and event.key == SDLK_i:
             game_framework.pop_mode()
+            play_mode.release_movement_keys(event_list[index + 1:])
             return
         elif event.type == SDL_KEYDOWN and event.key in selections:
             play_mode.boy.selected_ball = selections[event.key]
+        elif event.type == SDL_KEYUP and event.key in (SDLK_LEFT, SDLK_RIGHT):
+            play_mode.boy.handle_event(event)
 
 
 def update():
