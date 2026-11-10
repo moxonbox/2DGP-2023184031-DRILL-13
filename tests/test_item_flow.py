@@ -180,6 +180,86 @@ class ItemFlowTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     ball.Ball(400, 90, 10, selection)
 
+    def test_item_time_reaches_sleep_and_is_not_adjusted_on_return(self):
+        self.now = 1.0
+        self.open_items()
+        self.now = 4.99
+        item_mode.update()
+        self.assertEqual(play_mode.boy.state, 'IDLE')
+        self.now = 5.0
+        item_mode.update()
+        self.assertEqual(play_mode.boy.state, 'SLEEP')
+        self.now = 8.0
+        self.events(item_mode, self.key(SDLK_i))
+        self.assertEqual(play_mode.boy.idle_started_at, 0.0)
+        self.assertIsNone(play_mode.pause_started_at)
+
+    def test_item_return_before_sleep_preserves_idle_start(self):
+        self.now = 1.0
+        self.open_items()
+        self.now = 4.0
+        self.events(item_mode, self.key(SDLK_i))
+        self.assertEqual(play_mode.boy.idle_started_at, 0.0)
+        self.now = 5.0
+        play_mode.update()
+        self.assertEqual(play_mode.boy.state, 'SLEEP')
+
+    def test_pause_freezes_balls_and_excludes_time_from_idle(self):
+        play_mode.boy.selected_ball = 1
+        self.events(play_mode, self.key(SDLK_SPACE))
+        fired = self.balls()[0]
+        self.now = 2.0
+        self.events(play_mode, self.key(SDLK_p))
+        self.assertEqual(game_framework.stack, [play_mode, pause_mode])
+        self.now = 20.0
+        pause_mode.update()
+        self.assertEqual(fired.x, 400)
+        self.assertEqual(play_mode.boy.idle_started_at, 0.0)
+        self.now = 22.0
+        self.events(pause_mode, self.key(SDLK_p))
+        self.assertEqual(play_mode.boy.idle_started_at, 20.0)
+        self.assertIsNone(play_mode.pause_started_at)
+        self.now = 24.99
+        play_mode.update()
+        self.assertEqual(play_mode.boy.state, 'IDLE')
+        self.now = 25.0
+        play_mode.update()
+        self.assertEqual(play_mode.boy.state, 'SLEEP')
+
+    def test_pause_key_release_excludes_only_the_paused_idle_interval(self):
+        self.events(play_mode, self.key(SDLK_RIGHT))
+        self.now = 2.0
+        self.events(play_mode, self.key(SDLK_p))
+        self.now = 5.0
+        self.events(pause_mode, self.key(SDLK_RIGHT, SDL_KEYUP))
+        self.assertEqual(play_mode.boy.idle_started_at, 5.0)
+        self.now = 10.0
+        self.events(pause_mode, self.key(SDLK_p))
+        self.assertEqual(play_mode.boy.idle_started_at, 10.0)
+        self.now = 14.99
+        play_mode.update()
+        self.assertEqual(play_mode.boy.state, 'IDLE')
+        self.now = 15.0
+        play_mode.update()
+        self.assertEqual(play_mode.boy.state, 'SLEEP')
+
+    def test_pause_timestamp_clears_for_running_and_sleeping_states(self):
+        self.events(play_mode, self.key(SDLK_RIGHT))
+        self.events(play_mode, self.key(SDLK_p))
+        self.now = 4.0
+        self.events(pause_mode, self.key(SDLK_p))
+        self.assertEqual(play_mode.boy.state, 'RUN')
+        self.assertIsNone(play_mode.pause_started_at)
+        self.events(play_mode, self.key(SDLK_RIGHT, SDL_KEYUP))
+        self.now = 9.0
+        play_mode.update()
+        self.assertEqual(play_mode.boy.state, 'SLEEP')
+        self.events(play_mode, self.key(SDLK_p))
+        self.now = 20.0
+        self.events(pause_mode, self.key(SDLK_p))
+        self.assertEqual(play_mode.boy.state, 'SLEEP')
+        self.assertIsNone(play_mode.pause_started_at)
+
     def test_return_to_title_then_new_play_resets_selection(self):
         previous = play_mode.boy
         previous.selected_ball = 2
