@@ -1,9 +1,12 @@
 """Test game logic with real state transitions, without opening a canvas."""
 
+from pathlib import Path
+import runpy
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, call, patch
 
+import pico2d
 from sdl2 import (SDL_KEYDOWN, SDL_KEYUP, SDL_QUIT, SDLK_0, SDLK_1, SDLK_2,
                   SDLK_ESCAPE, SDLK_LEFT, SDLK_RIGHT, SDLK_SPACE, SDLK_i, SDLK_p)
 
@@ -259,6 +262,145 @@ class ItemFlowTests(unittest.TestCase):
         self.events(pause_mode, self.key(SDLK_p))
         self.assertEqual(play_mode.boy.state, 'SLEEP')
         self.assertIsNone(play_mode.pause_started_at)
+
+    def test_item_inputs_do_not_fire_move_or_open_pause(self):
+        play_mode.boy.selected_ball = 1
+        self.events(play_mode, self.key(SDLK_2))
+        self.assertEqual(play_mode.boy.selected_ball, 1)
+        self.open_items()
+        self.events(item_mode, self.key(SDLK_SPACE), self.key(SDLK_p),
+                    self.key(SDLK_RIGHT), self.key(SDLK_0, SDL_KEYUP))
+        self.assertEqual(game_framework.stack, [play_mode, item_mode])
+        self.assertEqual(play_mode.boy.state, 'IDLE')
+        self.assertEqual(play_mode.boy.pressed_keys, set())
+        self.assertEqual(play_mode.boy.selected_ball, 1)
+        self.assertEqual(self.balls(), [])
+
+    def test_item_keeps_movement_until_direction_key_is_released(self):
+        self.events(play_mode, self.key(SDLK_RIGHT))
+        self.open_items()
+        start_x = play_mode.boy.x
+        item_mode.update()
+        self.assertEqual(play_mode.boy.x, start_x + 5)
+        self.events(item_mode, self.key(SDLK_RIGHT, SDL_KEYUP))
+        item_mode.update()
+        self.assertEqual(play_mode.boy.x, start_x + 5)
+        self.assertEqual(play_mode.boy.pressed_keys, set())
+        self.assertEqual(play_mode.boy.state, 'IDLE')
+
+    def test_key_release_in_same_batch_as_entering_item_is_not_lost(self):
+        self.events(play_mode, self.key(SDLK_RIGHT))
+        self.events(play_mode, self.key(SDLK_i), self.key(SDLK_RIGHT, SDL_KEYUP))
+        self.assertEqual(game_framework.stack, [play_mode, item_mode])
+        self.assertEqual(play_mode.boy.pressed_keys, set())
+        self.assertEqual(play_mode.boy.state, 'IDLE')
+
+    def test_key_release_in_same_batch_as_leaving_item_is_not_lost(self):
+        self.events(play_mode, self.key(SDLK_RIGHT))
+        self.open_items()
+        self.events(item_mode, self.key(SDLK_i), self.key(SDLK_RIGHT, SDL_KEYUP))
+        self.assertEqual(game_framework.stack, [play_mode])
+        self.assertEqual(play_mode.boy.pressed_keys, set())
+        self.assertEqual(play_mode.boy.state, 'IDLE')
+
+    def test_repeated_item_switches_do_not_duplicate_objects(self):
+        play_mode.boy.selected_ball = 2
+        self.events(play_mode, self.key(SDLK_SPACE))
+        objects = [layer[:] for layer in game_world.world]
+        for _ in range(20):
+            self.open_items()
+            self.events(item_mode, self.key(SDLK_i))
+            self.assertEqual(game_framework.stack, [play_mode])
+            self.assertEqual(game_world.world, objects)
+            self.assertEqual(play_mode.boy.selected_ball, 2)
+            self.assertIsNone(play_mode.pause_started_at)
+
+    def test_item_render_composes_once_and_highlights_selected_row(self):
+        self.open_items()
+        operations = Mock()
+        with patch.multiple(item_mode, image=operations.panel,
+                            clear_canvas=operations.clear,
+                            update_canvas=operations.swap,
+                            draw_rectangle=operations.border,
+                            get_canvas_width=Mock(return_value=800),
+                            get_canvas_height=Mock(return_value=600)), \
+                patch.object(game_world, 'render', operations.world):
+            for selection, bottom, top in ((0, 336, 396), (1, 270, 330),
+                                           (2, 204, 264)):
+                with self.subTest(selection=selection):
+                    operations.reset_mock()
+                    play_mode.boy.selected_ball = selection
+                    item_mode.render()
+                    self.assertEqual(operations.mock_calls, [
+                        call.clear(), call.world(), call.panel.draw(400, 300),
+                        call.border(268, bottom, 532, top, 255, 220, 0, filled=False),
+                        call.swap(),
+                    ])
+
+    def test_pause_does_not_open_item_and_escape_clears_world(self):
+        self.events(play_mode, self.key(SDLK_p))
+        self.events(pause_mode, self.key(SDLK_i))
+        self.assertEqual(game_framework.stack, [play_mode, pause_mode])
+        self.events(pause_mode, self.key(SDLK_ESCAPE))
+        self.assertEqual(game_framework.stack, [title_mode])
+        self.assertIsNone(play_mode.boy)
+        self.assertTrue(all(not layer for layer in game_world.world))
+
+    def test_play_escape_returns_to_title(self):
+        self.events(play_mode, self.key(SDLK_ESCAPE))
+        self.assertEqual(game_framework.stack, [title_mode])
+        self.assertIsNone(play_mode.boy)
+        self.assertTrue(all(not layer for layer in game_world.world))
+
+    def test_window_close_in_item_cleans_modes_in_reverse_order(self):
+        self.finish_modes()
+        cleanups = Mock()
+        with patch.object(play_mode, 'get_events', return_value=[self.key(SDLK_i)]), \
+                patch.object(item_mode, 'get_events',
+                             return_value=[SimpleNamespace(type=SDL_QUIT)]), \
+                patch.object(play_mode, 'render'), patch.object(item_mode, 'render'), \
+                patch.object(item_mode, 'finish', wraps=item_mode.finish) as item_finish, \
+                patch.object(play_mode, 'finish', wraps=play_mode.finish) as play_finish, \
+                patch.object(game_framework.time, 'sleep',
+                             side_effect=[None, None, AssertionError('Loop did not stop')]):
+            cleanups.attach_mock(item_finish, 'item')
+            cleanups.attach_mock(play_finish, 'play')
+            game_framework.run(play_mode)
+        self.assertEqual(cleanups.mock_calls, [call.item(), call.play()])
+        self.assertEqual(game_framework.stack, [])
+        self.assertFalse(game_framework.running)
+        self.assertIsNone(play_mode.boy)
+        self.assertIsNone(item_mode.image)
+        self.assertTrue(all(not layer for layer in game_world.world))
+
+    def test_main_runs_logo_title_and_play_without_opening_a_window(self):
+        self.finish_modes()
+
+        def logo_events():
+            self.now += 2.0
+            return []
+
+        with patch.object(pico2d, 'open_canvas') as open_canvas, \
+                patch.object(pico2d, 'close_canvas') as close_canvas, \
+                patch.object(logo_mode, 'get_events', side_effect=logo_events) as logo_events_mock, \
+                patch.object(title_mode, 'get_events',
+                             return_value=[self.key(SDLK_SPACE)]) as title_events, \
+                patch.object(play_mode, 'get_events',
+                             return_value=[SimpleNamespace(type=SDL_QUIT)]) as play_events, \
+                patch.object(logo_mode, 'render'), patch.object(title_mode, 'render'), \
+                patch.object(play_mode, 'render'), \
+                patch.object(game_framework.time, 'sleep',
+                             side_effect=[None, None, None, AssertionError('Loop did not stop')]):
+            runpy.run_path(str(Path(__file__).resolve().parents[1] / 'main.py'),
+                           run_name='__main__')
+        open_canvas.assert_called_once_with()
+        close_canvas.assert_called_once_with()
+        logo_events_mock.assert_called_once_with()
+        title_events.assert_called_once_with()
+        play_events.assert_called_once_with()
+        self.assertEqual(game_framework.stack, [])
+        self.assertIsNone(play_mode.boy)
+        self.assertTrue(all(not layer for layer in game_world.world))
 
     def test_return_to_title_then_new_play_resets_selection(self):
         previous = play_mode.boy
