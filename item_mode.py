@@ -15,7 +15,10 @@ def init():
 def handle_events():
     selections = {SDLK_0: 0, SDLK_1: 1, SDLK_2: 2}
     for event in get_events():
-        if event.type == SDL_KEYDOWN and event.key in selections:
+        if event.type == SDL_KEYDOWN and event.key == SDLK_i:
+            game_framework.pop_mode()
+            return
+        elif event.type == SDL_KEYDOWN and event.key in selections:
             play_mode.boy.selected_ball = selections[event.key]
 
 
