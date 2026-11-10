@@ -23,7 +23,7 @@ def handle_events():
 
 
 def update():
-    pass
+    play_mode.update()
 
 
 def render():
