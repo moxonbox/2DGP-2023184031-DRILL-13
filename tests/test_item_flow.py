@@ -134,6 +134,52 @@ class ItemFlowTests(unittest.TestCase):
         self.open_items()
         self.assertEqual(character.selected_ball, 2)
 
+    def test_item_update_moves_world_exactly_once(self):
+        play_mode.boy.selected_ball = 1
+        self.events(play_mode, self.key(SDLK_SPACE))
+        fired = self.balls()[0]
+        start_x = fired.x
+        self.open_items()
+        with patch.object(game_world, 'update', wraps=game_world.update) as update:
+            item_mode.update()
+        update.assert_called_once_with()
+        self.assertEqual(fired.x, start_x + 10)
+
+    def test_item_update_removes_balls_only_after_crossing_edges(self):
+        for x, velocity in ((790, 10), (10, -10)):
+            with self.subTest(velocity=velocity):
+                fired = ball.Ball(x, 90, velocity, 1)
+                game_world.add_oject(fired)
+                item_mode.update()
+                self.assertIn(fired, self.balls())
+                self.assertIn(fired.x, (0, 800))
+                item_mode.update()
+                self.assertNotIn(fired, self.balls())
+
+    def test_mixed_balls_keep_images_and_reuse_each_cache(self):
+        character = play_mode.boy
+        for selection in (1, 2, 1, 2):
+            character.selected_ball = selection
+            self.events(play_mode, self.key(SDLK_SPACE))
+        fired = self.balls()
+        character.selected_ball = 0
+        self.open_items()
+        item_mode.update()
+        for obj, selection in zip(fired, (1, 2, 1, 2)):
+            self.assertEqual(obj.ball_type, selection)
+            self.assertIs(obj.image, self.images[ball.BALL_IMAGES[selection]])
+            obj.draw()
+        self.assertIsNot(fired[0].image, fired[1].image)
+        for filename in ball.BALL_IMAGES.values():
+            self.assertEqual(self.load_image.call_args_list.count(call(filename)), 1)
+            self.images[filename].draw.assert_has_calls([call(410, 90)] * 2)
+
+    def test_invalid_ball_types_are_rejected(self):
+        for selection in (0, -1, 3, '1', None):
+            with self.subTest(selection=selection):
+                with self.assertRaises(ValueError):
+                    ball.Ball(400, 90, 10, selection)
+
     def test_return_to_title_then_new_play_resets_selection(self):
         previous = play_mode.boy
         previous.selected_ball = 2
