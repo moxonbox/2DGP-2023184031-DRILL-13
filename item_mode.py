@@ -16,7 +16,15 @@ def handle_events():
     selections = {SDLK_0: 0, SDLK_1: 1, SDLK_2: 2}
     event_list = get_events()
     for index, event in enumerate(event_list):
-        if event.type == SDL_KEYDOWN and event.key == SDLK_i:
+        if event.type == SDL_QUIT:
+            game_framework.quit()
+            return
+        elif event.type == SDL_KEYDOWN and event.key == SDLK_ESCAPE:
+            import title_mode
+            game_framework.pop_mode()
+            game_framework.change_mode(title_mode)
+            return
+        elif event.type == SDL_KEYDOWN and event.key == SDLK_i:
             game_framework.pop_mode()
             play_mode.release_movement_keys(event_list[index + 1:])
             return
